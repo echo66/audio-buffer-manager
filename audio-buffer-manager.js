@@ -36,6 +36,22 @@ function AudioBufferManager(audioContext, audioCutterUrl) {
 					}
 					return false;
 				};
+				audioBuffer._addInterval = (newInterval) => {
+					// JOIN OVERLAPPING SEGMENTS
+					audioBuffer._intervals[audioBuffer._intervals.length] = newInterval;
+					audioBuffer._intervals.sort((a,b)=>{ return a.start-b.start; });
+					var intervals = [audioBuffer._intervals[0]];
+					for (var i=1; i<audioBuffer._intervals.length; i++) {
+						var currInterval = intervals[intervals.length-1];
+						var nextInterval = audioBuffer._intervals[i];
+						if (currInterval.end < nextInterval.start) {
+							intervals[intervals.length] = nextInterval;
+						} else {
+							currInterval.end = nextInterval.end;
+						}
+					}
+					audioBuffer._intervals = intervals;
+				};
 				audioBuffer._requestSegment = (start, duration) => {
 					var p = new Promise((resolve, reject) => {
 						let opURL = AUDIO_CUTTER_URL + '?' + 'start=' + start + '&' + 'duration=' + duration + '&' + 'url=' + audioBuffer._url;
@@ -47,21 +63,12 @@ function AudioBufferManager(audioContext, audioCutterUrl) {
 
 						request_audio(opURL).then((otherAudioBuffer) => {
 
-							// JOIN OVERLAPPING SEGMENTS
-							var newInterval = {start: start, end: start+duration};
-							audioBuffer._intervals[audioBuffer._intervals.length] = newInterval;
-							audioBuffer._intervals.sort((a,b)=>{ return a.start-b.start; });
-							var intervals = [audioBuffer._intervals[0]];
-							for (var i=1; i<audioBuffer._intervals.length; i++) {
-								var currInterval = intervals[intervals.length-1];
-								var nextInterval = audioBuffer._intervals[i];
-								if (currInterval.end < nextInterval.start) {
-									intervals[intervals.length] = nextInterval;
-								} else {
-									currInterval.end = nextInterval.end;
-								}
+							if (audioBuffer._hasSegment(start, duration)) {
+								resolve();
 							}
-							audioBuffer._intervals = intervals;
+
+							var newInterval = {start: start, end: start+duration};
+							audioBuffer._addInterval(newInterval);
 
 							// COPY THE DOWNLOADED BUFFER TO THIS AUDIO BUFFER
 							let startSample = start * info.sampleRate;
@@ -90,9 +97,17 @@ function AudioBufferManager(audioContext, audioCutterUrl) {
 						}
 
 						return Float32Array.prototype.subarray.apply(arr, [begin, end]);
-					}
+					};
+					arr.set = function(array, offset) {
+						let start = offset / audioBuffer.sampleRate;
+						let duration = (Math.min(audioBuffer.length, offset + array.length) - offset) / audioBuffer.sampleRate;
+						audioBuffer._addInterval({start:start, end: start + duration});
+						
+						Float32Array.prototype.set.apply(arr, [array, offset]);
+					};
 					return arr;
 				}
+				audioBuffer
 				resolve(audioBuffer);
 			});
 		});
