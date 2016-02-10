@@ -37,44 +37,49 @@ function AudioBufferManager(audioContext, audioCutterUrl) {
 					return false;
 				};
 				audioBuffer._requestSegment = (start, duration) => {
-					let opURL = AUDIO_CUTTER_URL + '?' + 'start=' + start + '&' + 'duration=' + duration + '&' + 'url=' + audioBuffer._url;
+					var p = new Promise((resolve, reject) => {
+						let opURL = AUDIO_CUTTER_URL + '?' + 'start=' + start + '&' + 'duration=' + duration + '&' + 'url=' + audioBuffer._url;
 
-					if (audioBuffer._hasSegment(start, duration))
-						return;
+						if (audioBuffer._hasSegment(start, duration))
+							return;
 
-					console.log("Downloading segment.");
+						console.log("Downloading segment.");
 
-					request_audio(opURL).then((otherAudioBuffer) => {
+						request_audio(opURL).then((otherAudioBuffer) => {
 
-						// JOIN OVERLAPPING SEGMENTS
-						var newInterval = {start: start, end: start+duration};
-						audioBuffer._intervals[audioBuffer._intervals.length] = newInterval;
-						audioBuffer._intervals.sort((a,b)=>{ return a.start-b.start; });
-						var intervals = [audioBuffer._intervals[0]];
-						for (var i=1; i<audioBuffer._intervals.length; i++) {
-							var currInterval = intervals[intervals.length-1];
-							var nextInterval = audioBuffer._intervals[i];
-							if (currInterval.end < nextInterval.start) {
-								intervals[intervals.length] = nextInterval;
-							} else {
-								currInterval.end = nextInterval.end;
+							// JOIN OVERLAPPING SEGMENTS
+							var newInterval = {start: start, end: start+duration};
+							audioBuffer._intervals[audioBuffer._intervals.length] = newInterval;
+							audioBuffer._intervals.sort((a,b)=>{ return a.start-b.start; });
+							var intervals = [audioBuffer._intervals[0]];
+							for (var i=1; i<audioBuffer._intervals.length; i++) {
+								var currInterval = intervals[intervals.length-1];
+								var nextInterval = audioBuffer._intervals[i];
+								if (currInterval.end < nextInterval.start) {
+									intervals[intervals.length] = nextInterval;
+								} else {
+									currInterval.end = nextInterval.end;
+								}
 							}
-						}
-						audioBuffer._intervals = intervals;
+							audioBuffer._intervals = intervals;
 
-						// COPY THE DOWNLOADED BUFFER TO THIS AUDIO BUFFER
-						let startSample = start * info.sampleRate;
-						for (var c=0; c<info.numberOfChannels; c++) 
-							audioBuffer.copyToChannel(otherAudioBuffer.getChannelData(c), c, startSample);
+							// COPY THE DOWNLOADED BUFFER TO THIS AUDIO BUFFER
+							let startSample = start * info.sampleRate;
+							for (var c=0; c<info.numberOfChannels; c++) 
+								audioBuffer.copyToChannel(otherAudioBuffer.getChannelData(c), c, startSample);
 
+							resolve();
+						}).catch(reject);
 					});
+
+					return p;
 				};
 				audioBuffer.getChannelData = function(channel) {
 					var arr = AudioBuffer.prototype.getChannelData.apply(audioBuffer, [channel]);
 					arr.subarray = function(begin, end) {
 						begin = Math.max(begin, 0);
 						end = Math.min(end, audioBuffer.length);
-						
+
 						if (begin >= end) 
 							return new Float32Array(0);
 						
